@@ -1,1 +1,1 @@
-from webcrawler import *
+from src.utils.webcrawler.webcrawler import *
