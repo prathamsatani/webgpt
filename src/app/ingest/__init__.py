@@ -1,0 +1,1 @@
+from src.app.ingest.script import Ingest, api_router
