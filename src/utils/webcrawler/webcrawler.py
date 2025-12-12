@@ -75,7 +75,9 @@ class WebCrawler:
         self.recursion_depth = 0
 
         response = requests.get(base_url, timeout=10)
-        response.raise_for_status()
+        if response.status_code != 200:
+            logger.error(f"Failed to fetch {base_url}: Status code {response.status_code}")
+            return None
         hyperlinks = BeautifulSoup(response.text, "html.parser").find_all("a", href=True)
 
         for link in hyperlinks:
@@ -89,20 +91,22 @@ class WebCrawler:
             if parsed.scheme in ("http", "https") and parsed.netloc == urlparse(base_url).netloc:
                 if abs_url not in self.internal_links:
                     self.internal_links.append(abs_url)
-                if len(self.internal_links) >= limit:
-                    break
+                if limit is not None:   
+                    if len(self.internal_links) >= limit:
+                        break
 
         print(self.internal_links)
         for link in list(self.internal_links):  # copy to avoid mutation issues
             # start recursion from depth 0 for each top-level link
-            self.recursive_crawl_aux(base_url, link, depth=0)
+            self.recursive_crawl_aux(base_url, link, depth=limit)
 
     def recursive_crawl_aux(self, base_url, url, depth=0):
         """
         url must be absolute. depth is current recursion depth.
         """
-        if depth >= self.limit:
-            return
+        if depth is not None:
+            if depth >= self.limit:
+                return
 
         # guard: only crawl same-host http(s) links
         parsed_base = urlparse(base_url)
@@ -112,7 +116,9 @@ class WebCrawler:
 
         try:
             response = requests.get(url, timeout=10)
-            response.raise_for_status()
+            if response.status_code != 200:
+                logger.warning(f"Failed to fetch {url}: Status code {response.status_code}")
+                return
         except requests.RequestException as e:
             logger.warning(f"Failed to fetch {url}: {e}")
             return
@@ -134,7 +140,9 @@ class WebCrawler:
             if abs_link not in self.internal_links:
                 self.internal_links.append(abs_link)
                 # recurse deeper
-                self.recursive_crawl_aux(base_url, abs_link, depth + 1)
+                if depth is not None:
+                    depth += 1
+                self.recursive_crawl_aux(base_url, abs_link, depth + 1 if depth is not None else None)
 
 
     def get_internal_links_using_sitemap(self, base_url: str, limit: int) -> Optional[List[str]]:
@@ -163,7 +171,7 @@ class WebCrawler:
                 response.raise_for_status()
 
                 for line in response.text.splitlines():
-                    if limit:
+                    if limit is not None:
                         if len(all_links) >= limit:
                             logger.info(f"Reached link limit of {limit}. Stopping extraction.")
                             break
@@ -229,7 +237,9 @@ class WebCrawler:
             for link in self.internal_links:
                 logger.info(f"Fetching page: {link}")
                 response = requests.get(link)
-                response.raise_for_status()
+                if response.status_code != 200:
+                    logger.warning(f"Failed to fetch {link}: Status code {response.status_code}")
+                    continue
                 
                 cleaned_html = self.clean_html(response.text, exclude_tags)
                 site_content.append({
@@ -243,10 +253,6 @@ class WebCrawler:
         except requests.RequestException as e:
             logger.error(f"Error fetching webpage content: {e}")
             return None
-    
-if __name__ == "__main__":
-    crawler = WebCrawler()
-    test_url = "https://www.solutelabs.com"
-    crawler.recursive_crawl(test_url, limit=5)
-    print(f"Internal links found: {crawler.internal_links}")
+
+
     
