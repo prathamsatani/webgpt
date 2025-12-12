@@ -1,7 +1,11 @@
+from src.models.vectordb.models import Data
 from src.utils.markdowner import Markdowner
 from src.utils.webcrawler import WebCrawler
-from fastapi import APIRouter, HTTPException
+from src.utils.vectordb import VectorDB
+from src.utils.embedding.text import LocalTextEmbedder
+from fastapi import APIRouter, HTTPException, Request
 from google import genai
+from google.genai import types
 from langchain_core.documents import Document
 from typing import List, Dict, Optional
 import logging
@@ -13,6 +17,8 @@ from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
     RecursiveCharacterTextSplitter,
 )
+
+import numpy as np
 
 load_dotenv()
 
@@ -30,6 +36,8 @@ class Ingest:
         self.config = Config()
         self.webcrawler = WebCrawler()
         self.markdowner = Markdowner()
+        self.vectordb = VectorDB()
+        self.embedder = LocalTextEmbedder()
         self.google_genai = genai.Client(
             api_key=self.config.get("google")["ai_studio"]["api_key"]
         
@@ -51,7 +59,7 @@ class Ingest:
         
         logging.info("Ingest instance created.")
 
-    def ingest_site(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
+    def convert_site_to_chunks(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
         """
         Ingest a website by crawling, cleaning HTML, and converting to Markdown.
 
@@ -110,12 +118,57 @@ class Ingest:
         
         return splitted_pages
 
-if __name__ == "__main__":
-    ingest_instance = Ingest()
-    test_url = "https://benhoyt.com/"
-    result = ingest_instance.ingest_site(test_url, max_pages=5)
-    if result:
-        for page in result:
-            logging.info(f"Ingested page metadata: {page['metadata']}")
-    else:
-        logging.error("Ingestion failed.")
+    def ingest_site(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
+        chunked_site = self.convert_site_to_chunks(url, max_pages)
+        if not chunked_site:
+            logging.error("Site conversion to chunks failed.")
+            return None
+        data = []
+        for page in chunked_site:
+            embeddings = self.embedder.embed_texts(
+                [doc.page_content for doc in page["splits"]]
+            )
+            for idx, embedding in enumerate(embeddings):
+                data.append(
+                    Data(
+                        id=hash(page["splits"][idx].page_content),
+                        vector=embedding,
+                        metadata={
+                            "source_url": page["metadata"]["source_url"],
+                            "ingested_at": page["metadata"]["ingested_at"],
+                            "chunk_index": idx,
+                            "text": page["splits"][idx].page_content,
+                        }
+                    )
+                )
+        try:        
+            retval = self.vectordb.upsert_vectors(
+                collection_name=self.config.get("milvus")["collection_name"],
+                data=data
+            )
+            if not retval:
+                logging.error("Upsert operation returned no result.")
+                return None
+            logging.info("Vectors upserted successfully.")
+        except Exception as e:
+            logging.error(f"Failed to upsert vectors: {e}")
+            return None
+        
+        return {
+            "url": url,
+            "num_vectors": len(data),
+            "collection": self.config.get("milvus")["collection_name"],
+        }
+
+api_router = APIRouter()
+@api_router.post("/ingest_site/")
+async def ingest_site_endpoint(request: Request, url: str, max_pages: int | None = None):
+    service: Ingest = request.app.state.ingest_service
+    try:
+        result = service.ingest_site(url, max_pages)
+        if result is None:
+            raise HTTPException(status_code=500, detail="Ingestion failed.")
+        return {"status": "success", "info": result}
+    except Exception as e:
+        logging.error(f"Error in ingestion endpoint: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
