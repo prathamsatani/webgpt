@@ -1,19 +1,30 @@
-from src.utils.config import Config
 from sentence_transformers import SentenceTransformer
 from google import genai
 import os
 
 class LocalTextEmbedder:
     def __init__(self):
-        self.config = Config()
+        self.model: SentenceTransformer = None
+    
+    def initialize(self, model_name: str, cache_dir: str, device: str):
+        '''
+        Initialize the embedder with a specific model.
         
-        if not os.path.exists(self.config.get("embedding")["local_model"]["embedding_model_cache_dir"]):
-            os.makedirs(self.config.get("embedding")["local_model"]["embedding_model_cache_dir"])
+        :param self: Instance of LocalTextEmbedder
+        :param model_name: Name of the embedding model
+        :type model_name: str
+        :param cache_dir: Directory to cache the model
+        :type cache_dir: str
+        :param device: Device to run the model on (e.g., 'cpu', 'cuda')
+        :type device: str
+        '''
+        if cache_dir and not os.path.exists(cache_dir):
+            os.makedirs(cache_dir, exist_ok=True)
         
         self.model = SentenceTransformer(
-            model_name_or_path=self.config.get("embedding")["local_model"]["embedding_model_name"],
-            cache_folder=self.config.get("embedding")["local_model"]["embedding_model_cache_dir"],
-            device=self.config.get("embedding")["local_model"]["device"],
+            model_name_or_path=model_name,
+            cache_folder=cache_dir,
+            device=device,
         )
 
     def embed_texts(self, texts: list[str]) -> list[list[float]]:
@@ -28,14 +39,22 @@ class LocalTextEmbedder:
         '''
         return self.model.encode(texts).tolist()
 
+    def terminate(self):
+        '''
+        Terminate the embedder and free up resources.
+        
+        :param self: Instance of LocalTextEmbedder
+        '''
+        self.model = None
+
 class GeminiTextEmbedder:
     def __init__(self):
-        self.config = Config()
-        self.client = genai.Client(
-            api_key=self.config.get("google")["ai_studio"]["api_key"]
-        )
-    
-    def embed_texts(self, texts: list[str]) -> list[list[float]]:
+        self.client: genai.Client = None
+
+    def initialize(self, api_key: str):
+        self.client = genai.Client(api_key=api_key)
+        
+    def embed_texts(self, texts: list[str], task_type: str = "RETRIEVAL_DOCUMENT", output_dimensionality: int = 768) -> list[list[float]]:
         '''
         Embed a list of texts into vectors.
         
@@ -49,8 +68,16 @@ class GeminiTextEmbedder:
             model="gemini-1.5-flash-embed-text-001",
             contents=texts,
             config=genai.types.EmbedContentConfig(
-                task_type=self.config.get("google")["ai_studio"]["embedding_task_type"],
-                output_dimensionality=self.config.get("google")["ai_studio"]["embedding_output_dimensionality"]
+                task_type=task_type,
+                output_dimensionality=output_dimensionality
             )
         )
         return [embedding.embedding for embedding in response.data]
+    
+    def terminate(self):
+        '''
+        Terminate the embedder and free up resources.
+        
+        :param self: Instance of LocalTextEmbedder
+        '''
+        self.client = None

@@ -4,8 +4,6 @@ from src.utils.webcrawler import WebCrawler
 from src.utils.vectordb import VectorDB
 from src.utils.embedding.text import LocalTextEmbedder
 from fastapi import APIRouter, HTTPException, Request
-from google import genai
-from google.genai import types
 from langchain_core.documents import Document
 from typing import List, Dict, Optional
 import logging
@@ -17,9 +15,7 @@ from langchain_text_splitters import (
     MarkdownHeaderTextSplitter,
     RecursiveCharacterTextSplitter,
 )
-
-import numpy as np
-
+from uuid import uuid4
 load_dotenv()
 
 # --------------------------
@@ -38,10 +34,6 @@ class Ingest:
         self.markdowner = Markdowner()
         self.vectordb = VectorDB()
         self.embedder = LocalTextEmbedder()
-        self.google_genai = genai.Client(
-            api_key=self.config.get("google")["ai_studio"]["api_key"]
-        
-        )
         self.md_splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=[
                 ("#", "Header 1"),
@@ -50,11 +42,22 @@ class Ingest:
                 ("####", "Header 4"),
             ],
         )
-        
         self.text_splitter = RecursiveCharacterTextSplitter(
             chunk_size=self.config.get("text_splitter")["chunk_size"],
             chunk_overlap=self.config.get("text_splitter")["chunk_overlap"],
             separators=self.config.get("text_splitter")["separators"],
+        )
+        
+        self.embedder.initialize(
+            model_name=self.config.get("embedding")["embedding_model_name"],
+            cache_dir=self.config.get("embedding")["embedding_model_cache_dir"],
+            device=self.config.get("embedding")["device"],
+        )
+        
+        self.vectordb.connect(
+            uri=f"http://{self.config.get('milvus')['host']}:{self.config.get('milvus')['port']}",
+            db_name=self.config.get("milvus")["db_name"],
+            collection_name=self.config.get("milvus")["collection_name"]
         )
         
         logging.info("Ingest instance created.")
@@ -123,15 +126,19 @@ class Ingest:
         if not chunked_site:
             logging.error("Site conversion to chunks failed.")
             return None
+        
         data = []
         for page in chunked_site:
             embeddings = self.embedder.embed_texts(
                 [doc.page_content for doc in page["splits"]]
             )
+            ids = []
             for idx, embedding in enumerate(embeddings):
+                id = str(uuid4())
+                ids.append(id)
                 data.append(
                     Data(
-                        id=hash(page["splits"][idx].page_content),
+                        id=id,
                         vector=embedding,
                         metadata={
                             "source_url": page["metadata"]["source_url"],
@@ -159,6 +166,21 @@ class Ingest:
             "num_vectors": len(data),
             "collection": self.config.get("milvus")["collection_name"],
         }
+        
+    def terminate(self):
+        '''
+        Terminate the Ingest service and free up resources.
+        
+        :param self: Instance of Ingest
+        '''
+        logging.info("Terminating Ingest service and freeing resources.")
+        self.embedder.terminate()
+        self.vectordb.disconnect()
+        self.webcrawler = None
+        self.markdowner = None
+        self.md_splitter = None
+        self.text_splitter = None
+        self.config = None
 
 api_router = APIRouter()
 @api_router.post("/ingest_site/")
