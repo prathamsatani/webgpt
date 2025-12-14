@@ -55,9 +55,9 @@ class Ingest:
         )
         
         self.vectordb.connect(
-            uri=f"http://{self.config.get('milvus')['host']}:{self.config.get('milvus')['port']}",
+            host=self.config.get("milvus")["host"],
+            port=self.config.get("milvus")["port"],
             db_name=self.config.get("milvus")["db_name"],
-            collection_name=self.config.get("milvus")["collection_name"]
         )
         
         logging.info("Ingest instance created.")

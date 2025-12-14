@@ -18,7 +18,7 @@ class VectorDB:
         self.client: MilvusClient = None
         logger.info("VectorDB instance created.")
     
-    def connect(self, uri, db_name, collection_name):
+    def connect(self, host: str, port: int, db_name: str):
         '''
         Connects to the vector database server.
         
@@ -27,11 +27,10 @@ class VectorDB:
         '''
         try:
             self.client = MilvusClient(
-                uri=uri,
+                uri=f"http://{host}:{port}",
                 db_name=db_name
             )
             self.db_name = db_name
-            self.collection_name = collection_name
             logger.info("Connected to VectorDB successfully.")
         except Exception as e:
             logger.exception(f"Failed to connect to VectorDB: {e}")
@@ -93,6 +92,7 @@ class VectorDB:
     
     def upsert_vectors(
         self,  
+        collection_name: str,
         data: list[Data],
     ) -> dict | bool:
         '''
@@ -105,26 +105,27 @@ class VectorDB:
         :return: True if the upsert was successful, False otherwise
         :rtype: bool
         '''
-        if not self.client.has_collection(self.collection_name):
-            logger.error(f"Collection '{self.collection_name}' does not exist.")
+        if not self.client.has_collection(collection_name):
+            logger.error(f"Collection '{collection_name}' does not exist.")
             return False
         try:
             res = self.client.upsert(
-                collection_name=self.collection_name,
+                collection_name=collection_name,
                 data=[item.to_dict() for item in data],
                 partial_update=True
             )
-            logger.info(f"Vectors upserted successfully into collection '{self.collection_name}'.")
+            logger.info(f"Vectors upserted successfully into collection '{collection_name}'.")
             return {
-                "collection_name": self.collection_name,
+                "collection_name": collection_name,
                 "upsert_count": res["upsert_count"]
             }
         except Exception as e:
-            logger.exception(f"Failed to upsert vectors into collection '{self.collection_name}': {e}")
+            logger.exception(f"Failed to upsert vectors into collection '{collection_name}': {e}")
             return False
     
     def insert_vectors(
         self, 
+        collection_name: str,
         data: list[Data]
     ) -> dict | bool:
         '''
@@ -137,26 +138,27 @@ class VectorDB:
         :return: True if the insert was successful, False otherwise
         :rtype: bool
         '''
-        if not self.client.has_collection(self.collection_name):
-            logger.error(f"Collection '{self.collection_name}' does not exist.")
+        if not self.client.has_collection(collection_name):
+            logger.error(f"Collection '{collection_name}' does not exist.")
             return False
         try:
             
             self.client.insert(
-                collection_name=self.collection_name,
+                collection_name=collection_name,
                 data=[item.to_dict() for item in data]
             )
-            logger.info(f"Vectors inserted successfully into collection '{self.collection_name}'.")
+            logger.info(f"Vectors inserted successfully into collection '{collection_name}'.")
             return {
-                "collection_name": self.collection_name,
+                "collection_name": collection_name,
                 "num_vectors_inserted": len(data)
             }
         except Exception as e:
-            logger.exception(f"Failed to insert vectors into collection '{self.collection_name}': {e}")
+            logger.exception(f"Failed to insert vectors into collection '{collection_name}': {e}")
             return False
     
     def search_vectors(
         self, 
+        collection_name: str,
         query_vectors: list, 
         top_k: int = 10,
         **search_params
@@ -173,20 +175,20 @@ class VectorDB:
         :return: List of search results if successful, False otherwise
         :rtype: list | bool
         '''
-        if not self.client.has_collection(self.collection_name):
-            logger.error(f"Collection '{self.collection_name}' does not exist.")
+        if not self.client.has_collection(collection_name):
+            logger.error(f"Collection '{collection_name}' does not exist.")
             return False
         try:
             results = self.client.search(
-                collection_name=self.collection_name,
+                collection_name=collection_name,
                 data=query_vectors,
                 limit=top_k,
                 **search_params
             )
-            logger.info(f"Search completed successfully in collection '{self.collection_name}'.")
+            logger.info(f"Search completed successfully in collection '{collection_name}'.")
             return results
         except Exception as e:
-            logger.exception(f"Failed to search vectors in collection '{self.collection_name}': {e}")
+            logger.exception(f"Failed to search vectors in collection '{collection_name}': {e}")
             return False
     
     def delete_collection(self, collection_name: str) -> bool:
@@ -277,7 +279,3 @@ class VectorDB:
             logger.info("Disconnected from VectorDB successfully.")
         except Exception as e:
             logger.exception(f"Failed to disconnect from VectorDB: {e}")
-
-# if __name__ == "__main__":
-#     vectordb = VectorDB()
-#     vectordb.client.drop_collection("webgpt_data")
