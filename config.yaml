@@ -1,0 +1,32 @@
+google:
+  ai_studio:
+    api_key: "AIzaSyDM6gHEBk06sTXdiX7A_i2V24jG_QwX8Jk"
+    embedding_task_type: "TEXT_EMBEDDING"
+    embedding_output_dimensionality: 768
+
+embedding:
+  local_model:
+    device: "cuda"
+    embedding_model_name: "all-MiniLM-L6-v2"
+    embedding_model_cache_dir: "./models/embeddings/"
+
+
+logging:
+  level: "WARNING"
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+milvus:
+  host: "localhost"
+  port: 19530
+  db_name: "webgpt_vectors"
+  collection_name: "webgpt_data"
+  embedding_dimension: 384
+
+text_splitter:
+  chunk_size: 1000
+  chunk_overlap: 300
+  separators:
+    - "\n\n"
+    - "\n"
+    - " "
+    - "" 
