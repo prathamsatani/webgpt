@@ -2,7 +2,7 @@ from pymilvus import MilvusClient
 import logging
 import os
 from dotenv import load_dotenv
-from src.models.vectordb import Data
+from src.schemas.vectordb import Data
 
 load_dotenv()
 

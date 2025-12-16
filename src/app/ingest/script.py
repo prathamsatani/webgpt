@@ -1,4 +1,4 @@
-from src.models.vectordb.models import Data
+from src.schemas.vectordb import Data
 from src.utils.markdowner import Markdowner
 from src.utils.webcrawler import WebCrawler
 from src.utils.vectordb import VectorDB
@@ -49,9 +49,9 @@ class Ingest:
         )
         
         self.embedder.initialize(
-            model_name=self.config.get("embedding")["embedding_model_name"],
-            cache_dir=self.config.get("embedding")["embedding_model_cache_dir"],
-            device=self.config.get("embedding")["device"],
+            model_name=self.config.get("embedding")["local_model"]["embedding_model_name"],
+            cache_dir=self.config.get("embedding")["local_model"]["embedding_model_cache_dir"],
+            device=self.config.get("embedding")["local_model"]["device"],
         )
         
         self.vectordb.connect(
@@ -100,9 +100,7 @@ class Ingest:
                     "metadata": {
                         "source_url": page["url"],
                         "length": len(page["html"]),
-                        "ingested_at": datetime.datetime.now(
-                            datetime.timezone.utc
-                        ).isoformat(),
+                        "ingested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                     },
                 }
             )
@@ -127,45 +125,56 @@ class Ingest:
             logging.error("Site conversion to chunks failed.")
             return None
         
-        data = []
-        for page in chunked_site:
-            embeddings = self.embedder.embed_texts(
-                [doc.page_content for doc in page["splits"]]
-            )
-            ids = []
-            for idx, embedding in enumerate(embeddings):
-                id = str(uuid4())
-                ids.append(id)
-                data.append(
-                    Data(
-                        id=id,
-                        vector=embedding,
-                        metadata={
-                            "source_url": page["metadata"]["source_url"],
-                            "ingested_at": page["metadata"]["ingested_at"],
-                            "chunk_index": idx,
-                            "text": page["splits"][idx].page_content,
-                        }
-                    )
+        data: list[Data] = []
+        insert_metadata = []
+        try:
+            for page in chunked_site:
+                embeddings = self.embedder.embed_texts(
+                    [doc.page_content for doc in page["splits"]]
                 )
-        try:        
-            retval = self.vectordb.upsert_vectors(
-                collection_name=self.config.get("milvus")["collection_name"],
-                data=data
-            )
-            if not retval:
-                logging.error("Upsert operation returned no result.")
-                return None
-            logging.info("Vectors upserted successfully.")
+                for idx, embedding in enumerate(embeddings):
+                    id = str(uuid4())
+                    data.append(
+                        Data(
+                            id=id,
+                            vector=embedding,
+                            metadata={
+                                "source_url": page["metadata"]["source_url"],
+                                "ingested_at": page["metadata"]["ingested_at"],
+                                "text": page["splits"][idx].page_content,
+                                "chunk_length": len(page["splits"][idx].page_content),
+                            }
+                        )
+                    )
+                insert_metadata.append({
+                    "source_url": page["metadata"]["source_url"],
+                    "num_chunks": len(page["splits"]),
+                    "chunked_at": page["metadata"]["ingested_at"],
+                    "page_length": page["metadata"]["length"],
+                    "embedded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                })
         except Exception as e:
-            logging.error(f"Failed to upsert vectors: {e}")
-            return None
-        
+            logging.error(f"Failed while processing chunks for embedding: {page['metadata']['source_url']}, Error: {e}, Total Processed Chunks: {len(data)}")
+        finally:
+            logging.info(f"Total chunks prepared for upsert: {len(data)}")
+            try:        
+                retval = self.vectordb.upsert_vectors(
+                    collection_name=self.config.get("milvus")["collection_name"],
+                    data=data
+                )
+                if not retval:
+                    logging.error("Upsert operation returned no result.")
+                    return None
+                logging.info("Vectors upserted successfully.")
+            except Exception as e:
+                logging.error(f"Failed to upsert vectors: {e}")
+                return None
+            
         return {
-            "url": url,
-            "num_vectors": len(data),
-            "collection": self.config.get("milvus")["collection_name"],
-        }
+            "ingested_url": url,
+            "total_pages": len(chunked_site),
+            "total_chunks": len(data)
+        }        
         
     def terminate(self):
         '''
