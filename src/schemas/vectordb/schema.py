@@ -18,3 +18,19 @@ class Data:
             "vector": self.vector,
             **self.metadata,
         }
+
+if __name__ == "__main__":
+    doc = Document(
+        page_content="Sample content", 
+        metadata={
+            "source": "test"
+        }
+    )
+    
+    data_instance = Data(
+        id="123", 
+        vector=[0.1, 0.2, 0.3], 
+        **doc.metadata
+    )
+    
+    print(data_instance.to_dict())

@@ -1,4 +1,4 @@
-from pymilvus import MilvusClient
+from pymilvus import MilvusClient, CollectionSchema, FieldSchema, DataType
 import logging
 import os
 from dotenv import load_dotenv
@@ -24,6 +24,14 @@ class VectorDB:
         
         :param self: Instance of the VectorDB class
         :type self: VectorDB
+        :param host: Hostname of the vector database server
+        :type host: str
+        :param port: Port number of the vector database server
+        :type port: int
+        :param db_name: Name of the database to connect to
+        :type db_name: str
+        :return: None
+        :rtype: None
         '''
         try:
             self.client = MilvusClient(
@@ -46,6 +54,10 @@ class VectorDB:
         :return: True if the database was created successfully, False otherwise
         :rtype: bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         try:
             self.client.create_database(db_name)
             logger.info(f"Database '{db_name}' created successfully.")
@@ -74,15 +86,29 @@ class VectorDB:
         :return: True if the collection was created successfully, False otherwise
         :rtype: bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         if self.client.has_collection(collection_name):
             logger.info(f"Collection '{collection_name}' already exists.")
             return True
         
         try:
+            
+            index_params = self.client.prepare_index_params()
+            index_params.add_index(
+                field_name="vector",
+                metric_type="COSINE",
+                index_type="IVF_FLAT",
+                params={"nlist": 128}
+            )
+            
             self.client.create_collection(
                 collection_name=collection_name,
+                dimension=dimension,
                 schema=schema,
-                dimension=dimension
+                index_params=index_params
             )
             logger.info(f"Collection '{collection_name}' created successfully.")
             return True
@@ -105,13 +131,18 @@ class VectorDB:
         :return: True if the upsert was successful, False otherwise
         :rtype: bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         if not self.client.has_collection(collection_name):
             logger.error(f"Collection '{collection_name}' does not exist.")
             return False
         try:
+            self.client.load_collection(collection_name)
             res = self.client.upsert(
                 collection_name=collection_name,
-                data=[item.to_dict() for item in data],
+                data=data,
                 partial_update=True
             )
             logger.info(f"Vectors upserted successfully into collection '{collection_name}'.")
@@ -138,11 +169,15 @@ class VectorDB:
         :return: True if the insert was successful, False otherwise
         :rtype: bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         if not self.client.has_collection(collection_name):
             logger.error(f"Collection '{collection_name}' does not exist.")
             return False
         try:
-            
+            self.client.load_collection(collection_name)
             self.client.insert(
                 collection_name=collection_name,
                 data=[item.to_dict() for item in data]
@@ -175,10 +210,15 @@ class VectorDB:
         :return: List of search results if successful, False otherwise
         :rtype: list | bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         if not self.client.has_collection(collection_name):
             logger.error(f"Collection '{collection_name}' does not exist.")
             return False
         try:
+            self.client.load_collection(collection_name)
             results = self.client.search(
                 collection_name=collection_name,
                 data=query_vectors,
@@ -202,6 +242,10 @@ class VectorDB:
         :return: True if the collection was deleted successfully, False otherwise
         :rtype: bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         if not self.client.has_collection(collection_name):
             logger.error(f"Collection '{collection_name}' does not exist.")
             return False
@@ -224,6 +268,10 @@ class VectorDB:
         :return: True if the collection exists, False otherwise
         :rtype: bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         try:
             exists = self.client.has_collection(collection_name)
             logger.info(f"Collection '{collection_name}' existence check: {exists}.")
@@ -243,6 +291,10 @@ class VectorDB:
         :return: Dictionary of collection statistics if successful, False otherwise
         :rtype: dict | bool
         '''
+        if not self.client:
+            logger.error("VectorDB client is not connected.")
+            return False
+
         if not self.client.has_collection(collection_name):
             logger.error(f"Collection '{collection_name}' does not exist.")
             return False
@@ -261,6 +313,9 @@ class VectorDB:
         :param self: Instance of the VectorDB class
         :type self: VectorDB
         '''
+        if not self.client:
+            return
+
         try:
             self.client.close()
             logger.info("Connection to VectorDB closed successfully.")
@@ -279,3 +334,21 @@ class VectorDB:
             logger.info("Disconnected from VectorDB successfully.")
         except Exception as e:
             logger.exception(f"Failed to disconnect from VectorDB: {e}")
+
+if __name__ == "__main__":
+    vdb = VectorDB()
+    vdb.connect("localhost", 19530, "default")
+    schema = CollectionSchema(
+        fields=[
+            FieldSchema(name="id", dtype=DataType.VARCHAR, is_primary=True, max_length=255),
+            FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=384),
+            FieldSchema(name="source_url", dtype=DataType.VARCHAR, max_length=255),
+            FieldSchema(name="ingested_at", dtype=DataType.VARCHAR, max_length=255),
+            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="chunk_length", dtype=DataType.INT64)
+        ]
+    )
+    vdb.delete_collection("webgpt_data")
+    vdb.create_collection(collection_name="webgpt_data", schema=schema, dimension=384)
+    collections = vdb.client.list_collections()
+    print(collections)

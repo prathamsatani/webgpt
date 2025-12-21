@@ -3,6 +3,8 @@ from src.utils.markdowner import Markdowner
 from src.utils.webcrawler import WebCrawler
 from src.utils.vectordb import VectorDB
 from src.utils.embedding.text import LocalTextEmbedder
+from src.utils.postgresdb import PostgresDB
+from src.models import EmbeddedMetadata
 from fastapi import APIRouter, HTTPException, Request
 from langchain_core.documents import Document
 from typing import List, Dict, Optional
@@ -33,6 +35,7 @@ class Ingest:
         self.webcrawler = WebCrawler()
         self.markdowner = Markdowner()
         self.vectordb = VectorDB()
+        self.postgresdb = PostgresDB()
         self.embedder = LocalTextEmbedder()
         self.md_splitter = MarkdownHeaderTextSplitter(
             headers_to_split_on=[
@@ -58,6 +61,14 @@ class Ingest:
             host=self.config.get("milvus")["host"],
             port=self.config.get("milvus")["port"],
             db_name=self.config.get("milvus")["db_name"],
+        )
+        
+        self.postgresdb.connect(
+            user=self.config.get("postgres")["user"],
+            password=self.config.get("postgres")["password"],
+            host=self.config.get("postgres")["host"],
+            port=self.config.get("postgres")["port"],
+            database=self.config.get("postgres")["database"]
         )
         
         logging.info("Ingest instance created.")
@@ -100,7 +111,7 @@ class Ingest:
                     "metadata": {
                         "source_url": page["url"],
                         "length": len(page["html"]),
-                        "ingested_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                        "ingested_at": datetime.datetime.now(datetime.timezone.utc),
                     },
                 }
             )
@@ -119,12 +130,43 @@ class Ingest:
         
         return splitted_pages
 
-    def ingest_site(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
+    async def get_ingested_urls(self, filter: EmbeddedMetadata):
+        '''
+        Retrieve ingested URLs based on the provided filter.
+        
+        :param self: Instance of the Ingest class
+        :param base_url: Base URL to filter the ingested URLs
+        :type base_url: str
+        '''
+        try:
+            retval = await self.postgresdb.fetch_all(filter)
+            if retval:
+                retval = [item.to_dict()["source_url"] for item in retval]
+            
+            return retval
+        except Exception as e:
+            print(f"Failed to fetch ingested metadata: {e}")
+
+    async def save_ingested_metadata(self, metadata: List[EmbeddedMetadata]):
+        '''
+        Docstring for save_ingested_metadata
+        
+        :param self: Description
+        :param metadata: Description
+        :type metadata: List[EmbeddedMetadata]
+        '''
+        try:
+            status = await self.postgresdb.insert(metadata)
+            return status
+        except Exception as e:
+            print(f"Failed to save ingested metadata: {e}")
+
+    async def ingest_site(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
         chunked_site = self.convert_site_to_chunks(url, max_pages)
         if not chunked_site:
             logging.error("Site conversion to chunks failed.")
             return None
-        
+        ingested_metadata = await self.get_ingested_urls(EmbeddedMetadata(base_url=url))
         data: list[Data] = []
         insert_metadata = []
         try:
@@ -133,26 +175,31 @@ class Ingest:
                     [doc.page_content for doc in page["splits"]]
                 )
                 for idx, embedding in enumerate(embeddings):
-                    id = str(uuid4())
-                    data.append(
-                        Data(
-                            id=id,
-                            vector=embedding,
-                            metadata={
-                                "source_url": page["metadata"]["source_url"],
-                                "ingested_at": page["metadata"]["ingested_at"],
-                                "text": page["splits"][idx].page_content,
-                                "chunk_length": len(page["splits"][idx].page_content),
-                            }
+                    if page["metadata"]["source_url"] not in ingested_metadata:
+                        id = str(uuid4())
+                        data.append(
+                            Data(
+                                id=id,
+                                vector=embedding,
+                                **{
+                                    "source_url": page["metadata"]["source_url"],
+                                    "ingested_at": page["metadata"]["ingested_at"].isoformat(),
+                                    "text": page["splits"][idx].page_content,
+                                    "chunk_length": len(page["splits"][idx].page_content),
+                                }
+                            )
                         )
-                    )
+                    
                 insert_metadata.append({
+                    "id": str(uuid4()),
+                    "base_url": url,
                     "source_url": page["metadata"]["source_url"],
-                    "num_chunks": len(page["splits"]),
+                    "number_of_chunks": len(page["splits"]),
                     "chunked_at": page["metadata"]["ingested_at"],
                     "page_length": page["metadata"]["length"],
-                    "embedded_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+                    "embedded_at": datetime.datetime.now(datetime.timezone.utc),
                 })
+                
         except Exception as e:
             logging.error(f"Failed while processing chunks for embedding: {page['metadata']['source_url']}, Error: {e}, Total Processed Chunks: {len(data)}")
         finally:
@@ -160,12 +207,18 @@ class Ingest:
             try:        
                 retval = self.vectordb.upsert_vectors(
                     collection_name=self.config.get("milvus")["collection_name"],
-                    data=data
+                    data=[item.to_dict() for item in data]
                 )
                 if not retval:
                     logging.error("Upsert operation returned no result.")
                     return None
                 logging.info("Vectors upserted successfully.")
+            
+                save_status = await self.save_ingested_metadata(
+                    [EmbeddedMetadata(**metadata) for metadata in insert_metadata]
+                )
+                if save_status != True:
+                    raise RuntimeError("Could not save ingested metadata. Aborting.")
             except Exception as e:
                 logging.error(f"Failed to upsert vectors: {e}")
                 return None
@@ -176,7 +229,7 @@ class Ingest:
             "total_chunks": len(data)
         }        
         
-    def terminate(self):
+    async def terminate(self):
         '''
         Terminate the Ingest service and free up resources.
         
@@ -185,6 +238,7 @@ class Ingest:
         logging.info("Terminating Ingest service and freeing resources.")
         self.embedder.terminate()
         self.vectordb.disconnect()
+        await self.postgresdb.close()
         self.webcrawler = None
         self.markdowner = None
         self.md_splitter = None
@@ -196,7 +250,7 @@ api_router = APIRouter()
 async def ingest_site_endpoint(request: Request, url: str, max_pages: int | None = None):
     service: Ingest = request.app.state.ingest_service
     try:
-        result = service.ingest_site(url, max_pages)
+        result = await service.ingest_site(url, max_pages)
         if result is None:
             raise HTTPException(status_code=500, detail="Ingestion failed.")
         return {"status": "success", "info": result}
