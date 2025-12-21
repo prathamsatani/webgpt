@@ -19,11 +19,27 @@ logger = logging.getLogger("Markdowner")
 class Markdowner:
     def __init__(self):
         logger.info("Markdowner instance created.")
+    
+    def clean_markdown(self, markdown_content: str) -> str:
+        """
+        Clean the markdown content by removing unwanted characters or formatting.
+
+        :param self: Description
+        :param markdown_content: Description
+        :type markdown_content: str
+        :return: Description
+        :rtype: str
+        """
+        logger.info("Cleaning markdown content.")
+        # Example cleaning process (can be expanded as needed)
+        cleaned_content = markdown_content.replace("\r\n", "").replace("\n\n", "").replace("  ", " ").replace("\t", " ").replace("`", "")
+        logger.debug(f"Cleaned markdown content length: {len(cleaned_content)}")
+        return cleaned_content
 
     # -------------------------------------------------------
     # Convert a single page to Markdown
     # -------------------------------------------------------
-    def convert_to_markdown(self, cleaned_html: str) -> Optional[str]:
+    def convert_to_markdown(self, cleaned_html: str, clean_markdown: bool=False) -> Optional[str]:
         """
         Convert a single page to Markdown
 
@@ -37,7 +53,8 @@ class Markdowner:
 
         try:
             markdown_content = md(cleaned_html, heading_style="ATX")
-
+            if clean_markdown:
+                markdown_content = self.clean_markdown(markdown_content)
             logger.debug(
                 f"Markdown conversion successful ({len(markdown_content)} chars)"
             )
