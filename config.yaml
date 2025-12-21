@@ -18,7 +18,7 @@ logging:
 milvus:
   host: "localhost"
   port: 19530
-  db_name: "webgpt_vectors"
+  db_name: "default"
   collection_name: "webgpt_data"
   embedding_dimension: 384
 
@@ -30,3 +30,10 @@ text_splitter:
     - "\n"
     - " "
     - "" 
+
+postgres:
+  user: "postgres"
+  password: "postgres"
+  host: "localhost"
+  port: 5432
+  database: "webgpt"
