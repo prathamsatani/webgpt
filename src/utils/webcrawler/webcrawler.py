@@ -234,7 +234,7 @@ class WebCrawler:
         self.recursive_crawl(base_url, limit)
         return self.internal_links[:limit]
     
-    def get_website_content(self, url: str, exclude_tags: List[str], limit: int) -> Optional[List[Dict[str, any]]]:
+    def get_website_content(self, url: str, exclude_tags: List[str], limit: int, exclude_pages: List[str]) -> Optional[List[Dict[str, any]]]:
         """Fetch HTML content from a website."""
         logger.info(f"Fetching content from URL: {url}")
 
@@ -246,6 +246,10 @@ class WebCrawler:
             
             site_content = []
             for link in self.internal_links:
+                if any(exclude_page in link for exclude_page in exclude_pages):
+                    logger.info(f"Skipping excluded page: {link}")
+                    continue
+
                 logger.info(f"Fetching page: {link}")
                 
                 response = self.fetch_html(link)

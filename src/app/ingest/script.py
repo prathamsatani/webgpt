@@ -73,7 +73,7 @@ class Ingest:
         
         logging.info("Ingest instance created.")
 
-    def convert_site_to_chunks(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
+    def convert_site_to_chunks(self, url: str, max_pages: int, exclude_pages: List[str]) -> Optional[List[Dict[str, any]]]:
         """
         Ingest a website by crawling, cleaning HTML, and converting to Markdown.
 
@@ -98,9 +98,10 @@ class Ingest:
                 "head",
             ],
             limit=max_pages,
+            exclude_pages=exclude_pages
         )
         if not site_content:
-            logging.error("Failed to retrieve site content.")
+            logging.warning("No site content available for ingestion.")
             return None
 
         markdowned_pages = []
@@ -130,13 +131,15 @@ class Ingest:
         
         return splitted_pages
 
-    async def get_ingested_urls(self, filter: EmbeddedMetadata):
+    async def get_ingested_urls(self, filter: EmbeddedMetadata) -> Optional[List[str]]:
         '''
         Retrieve ingested URLs based on the provided filter.
         
         :param self: Instance of the Ingest class
         :param base_url: Base URL to filter the ingested URLs
         :type base_url: str
+        :return: List of ingested URLs or None if an error occurs
+        :rtype: Optional[List[str]]
         '''
         try:
             retval = await self.postgresdb.fetch_all(filter)
@@ -162,11 +165,15 @@ class Ingest:
             print(f"Failed to save ingested metadata: {e}")
 
     async def ingest_site(self, url: str, max_pages: int) -> Optional[List[Dict[str, any]]]:
-        chunked_site = self.convert_site_to_chunks(url, max_pages)
-        if not chunked_site:
-            logging.error("Site conversion to chunks failed.")
-            return None
         ingested_metadata = await self.get_ingested_urls(EmbeddedMetadata(base_url=url))
+        chunked_site = self.convert_site_to_chunks(url, max_pages, exclude_pages=ingested_metadata or [])
+        if not chunked_site or len(chunked_site) == 0:
+            logging.warning("No chunked site data available for ingestion.")
+            return {
+                "ingested_url": url,
+                "total_pages": 0,
+                "total_chunks": 0
+            }
         data: list[Data] = []
         insert_metadata = []
         try:
