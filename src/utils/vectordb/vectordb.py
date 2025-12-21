@@ -196,6 +196,8 @@ class VectorDB:
         collection_name: str,
         query_vectors: list, 
         top_k: int = 10,
+        filter: str = None,
+        output_fields: list[str] = None,
         **search_params
     ) -> list | bool:
         '''
@@ -223,6 +225,8 @@ class VectorDB:
                 collection_name=collection_name,
                 data=query_vectors,
                 limit=top_k,
+                filter=filter,
+                output_fields=output_fields,
                 **search_params
             )
             logger.info(f"Search completed successfully in collection '{collection_name}'.")
