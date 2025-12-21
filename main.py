@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 async def lifespan(app: FastAPI):
     app.state.ingest_service = Ingest()
     yield
-    app.state.ingest_service.terminate()
+    await app.state.ingest_service.terminate()
 
 app = FastAPI(lifespan=lifespan)
 app.include_router(api_router, prefix="/ingest")
