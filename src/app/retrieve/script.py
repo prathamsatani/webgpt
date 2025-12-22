@@ -54,8 +54,7 @@ class Retrieve:
         return self.retrieve(query_vectors, top_k=top_k, filter=filter, search_params=search_params, output_fields=output_fields)
 
 if __name__ == "__main__":
-    import json
     retriever = Retrieve()
     sample_queries = ["What is the __slots__ method in Python?"]
     retrieved_results = retriever.retrieve_by_queries(sample_queries, top_k=10, output_fields=["source_url","text"])
-    print(retrieved_results)
+    
