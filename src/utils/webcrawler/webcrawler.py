@@ -181,7 +181,7 @@ class WebCrawler:
                 self.recursive_crawl_aux(base_url, abs_link, depth + 1 if depth is not None else None)
 
     def get_internal_links_using_sitemap(self, base_url: str, limit: int) -> Optional[List[str]]:
-        """Extract internal HTML links from the sitemap."""
+        """Extract internal HTML links from the sitemap, handling nested sitemaps."""
         logger.info(f"Extracting internal links for: {base_url}")
 
         sitemap_urls = self.get_sitemap(base_url)
@@ -190,34 +190,59 @@ class WebCrawler:
             return None
 
         all_links = []
-        
-        try:
-            for sitemap in sitemap_urls:
-                logger.info(f"Processing sitemap: {sitemap}")
-                response = requests.get(sitemap)
-                response.raise_for_status()
+        visited_sitemaps = set()
 
-                for line in response.text.splitlines():
+        def process_sitemap(sitemap_url: str):
+            """Recursively process a sitemap, handling both index and regular sitemaps."""
+            if sitemap_url in visited_sitemaps:
+                return
+            visited_sitemaps.add(sitemap_url)
+
+            if limit is not None and len(all_links) >= limit:
+                return
+
+            logger.info(f"Processing sitemap: {sitemap_url}")
+            try:
+                response = requests.get(sitemap_url)
+                response.raise_for_status()
+                soup = BeautifulSoup(response.content, 'xml')
+
+                # Check for nested sitemaps (sitemap index)
+                nested_sitemaps = soup.find_all('sitemap')
+                if nested_sitemaps:
+                    for sitemap in nested_sitemaps:
+                        loc = sitemap.find('loc')
+                        if loc:
+                            nested_url = loc.text.strip()
+                            logger.debug(f"Found nested sitemap: {nested_url}")
+                            process_sitemap(nested_url)  # Recurse into nested sitemap
+
+                # Process regular URL entries
+                url_entries = soup.find_all('url')
+                for url_entry in url_entries:
                     if limit is not None and len(all_links) >= limit:
                         logger.info(f"Reached link limit of {limit}. Stopping extraction.")
-                        break
-                    line = line.strip()
-                    if line.startswith("<loc>") and line.endswith("</loc>"):
-                        link = line[5:-6]
+                        return
 
-                        # Only add HTML links
+                    loc = url_entry.find('loc')
+                    if loc:
+                        link = loc.text.strip()
+                        # Only filter HTML here — these are actual page URLs
                         if link.startswith(base_url) and self.is_html_url(link):
-                            all_links.append(link)
-                            logger.debug(f"Internal link added: {link}")
-                        else:
-                            logger.debug(f"Skipping link: {link}")
+                            if link not in all_links:
+                                all_links.append(link)
+                                logger.debug(f"Internal link added: {link}")
+
+            except requests.RequestException as e:
+                logger.error(f"Error fetching sitemap {sitemap_url}: {e}")
+
+        try:
+            for sitemap in sitemap_urls:
+                process_sitemap(sitemap)
 
             logger.info(f"Total internal links found: {len(all_links)}")
             return all_links
 
-        except requests.RequestException as e:
-            logger.error(f"Error fetching internal links: {e}")
-            return None
         except Exception as e:
             logger.exception(f"General error while processing sitemap: {e}")
             return None

@@ -189,20 +189,6 @@ class VectorDB:
 if __name__ == "__main__":
     vectordb = VectorDB()
     vectordb.connect(path="./vectordb_data")
-    vectordb.create_collection(collection_name="test_collection", dimension=3)
-    
-    data_items = [
-        Data(id="1", vector=[0.1, 0.2, 0.3], source="doc1"),
-        Data(id="2", vector=[0.4, 0.5, 0.6], source="doc2"),
-        Data(id="3", vector=[0.7, 0.8, 0.9], source="doc3"),
-    ]
-    
-    upsert_result = vectordb.upsert_vectors(collection_name="test_collection", data=data_items)
-    print("Upsert Result:", upsert_result)
-    
-    query_vectors = [[0.1, 0.2, 0.3]]
-    search_results = vectordb.similarity_search(collection_name="test_collection", query_vectors=query_vectors, top_k=2)
-    print("Search Results:", search_results)
-    
-    vectordb.delete_collection(collection_name="test_collection")
+    vectordb.create_collection(collection_name="webgpt_data", dimension=384)
+    # vectordb.delete_collection(collection_name="webgpt_data")
     vectordb.disconnect()

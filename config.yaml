@@ -6,7 +6,7 @@ google:
 
 embedding:
   local_model:
-    device: "cuda"
+    device: "cpu"
     embedding_model_name: "all-MiniLM-L6-v2"
     embedding_model_cache_dir: "./models/embeddings/"
 
@@ -15,10 +15,8 @@ logging:
   level: "WARNING"
   format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 
-milvus:
-  host: "localhost"
-  port: 19530
-  db_name: "default"
+chromadb:
+  path: "./vectordb_data/"
   collection_name: "webgpt_data"
   embedding_dimension: 384
 

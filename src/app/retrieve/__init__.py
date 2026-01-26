@@ -1,1 +1,1 @@
-from src.app.retrieve.script import Retrieve
+from src.app.retrieve.script import Retrieve, api_router

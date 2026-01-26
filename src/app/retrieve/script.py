@@ -2,6 +2,7 @@ from src.utils.config import Config
 from src.utils.vectordb import VectorDB
 from src.utils.embedding import LocalTextEmbedder
 from typing import List
+from fastapi import APIRouter, HTTPException, Request
 
 class Retrieve:
     def __init__(self):
@@ -10,9 +11,7 @@ class Retrieve:
         self.embedder = LocalTextEmbedder()
         
         self.vectordb.connect(
-            host=self.config.get("milvus")["host"],
-            port=self.config.get("milvus")["port"],
-            db_name=self.config.get("milvus")["db_name"],
+            path=self.config.get("chromadb")["path"],
         )
         
         self.embedder.initialize(
@@ -25,17 +24,12 @@ class Retrieve:
         self, 
         query_vectors: List[List[float]], 
         top_k: int = 5, 
-        filter: str = None, 
-        search_params: dict = None,
-        output_fields: List[str] = None
+
     ) -> List[dict]:
-        results = self.vectordb.search_vectors(
-            collection_name=self.config.get("milvus")["collection_name"],
+        results = self.vectordb.similarity_search(
+            collection_name=self.config.get("chromadb")["collection_name"],
             query_vectors=query_vectors,
             top_k=top_k,
-            filter=filter,
-            search_params=search_params,
-            output_fields=output_fields
         )
         return results
 
@@ -51,10 +45,44 @@ class Retrieve:
         output_fields: List[str] = None
     ) -> List[dict]:
         query_vectors = self.embed_queries(queries)
-        return self.retrieve(query_vectors, top_k=top_k, filter=filter, search_params=search_params, output_fields=output_fields)
+        return self.retrieve(query_vectors, top_k=top_k)
 
-if __name__ == "__main__":
-    retriever = Retrieve()
-    sample_queries = ["What is the __slots__ method in Python?"]
-    retrieved_results = retriever.retrieve_by_queries(sample_queries, top_k=10, output_fields=["source_url","text"])
-    
+    def terminate(self):
+        self.vectordb.disconnect()   
+        self.embedder.terminate()
+        self.config = None
+
+api_router = APIRouter()
+@api_router.post("/one")
+async def retrieve_documents(request: Request, query: str, top_k: int = 5):
+    service: Retrieve = request.app.state.retrieve_service
+    try:
+        results = service.retrieve_by_queries([query], top_k=top_k, output_fields=["text"])
+        print("Retrieve Results:", results)
+        return results
+    except Exception as e:
+        import traceback
+        traceback.print_exc()  # Print full stack trace to console
+        raise HTTPException(
+            status_code=500, 
+            detail=f"{type(e).__name__}: {e}"  # Include exception type
+        )
+
+@api_router.post("/batch")
+async def retrieve_documents_batch(request: Request, queries: List[str], top_k: int = 5):
+    """
+    Retrieve relevant documents for a batch of queries.
+
+    :param queries: A list of user's questions or query strings.
+    :type queries: List[str]
+    :param top_k: The number of top relevant documents to retrieve for each query.
+    :type top_k: int
+    :return: A list of lists containing retrieved documents for each query.
+    :rtype: List[List[dict]]
+    """
+    service: Retrieve = request.app.state.retrieve_service
+    try:
+        results = service.retrieve_by_queries(queries, top_k=top_k, output_fields=["text"])
+        return results 
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))

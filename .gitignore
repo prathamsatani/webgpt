@@ -8,6 +8,7 @@ wheels/
 models/
 .pytest_cache/
 config.yaml
+vectordb_data/
 # Virtual environments
 .venv
 .env

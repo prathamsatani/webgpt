@@ -58,9 +58,7 @@ class Ingest:
         )
         
         self.vectordb.connect(
-            host=self.config.get("milvus")["host"],
-            port=self.config.get("milvus")["port"],
-            db_name=self.config.get("milvus")["db_name"],
+            path=self.config.get("chromadb")["path"],
         )
         
         self.postgresdb.connect(
@@ -131,6 +129,28 @@ class Ingest:
         
         return splitted_pages
 
+    def filter_splitted_pages(self, splitted_pages: List[Dict[str, any]]) -> List[Dict[str, any]]:
+        '''
+        Filter splitted pages to remove empty or irrelevant chunks.
+        
+        :param self: Instance of Ingest class
+        :param splitted_pages: List of splitted pages with metadata
+        :type splitted_pages: List[Dict[str, any]]
+        :return: Filtered list of splitted pages
+        :rtype: List[Dict[str, any]]
+        '''
+        filtered_pages = []
+        metadata = []
+        for page in splitted_pages:
+            filtered_splits = [split for split in page["splits"] if len(split.page_content.strip()) > 0]
+            if filtered_splits:
+                filtered_pages.append(
+                    {
+                        "splits": filtered_splits,
+                        "metadata": page["metadata"],
+                    }
+                )
+        return filtered_pages
     async def get_ingested_urls(self, filter: EmbeddedMetadata) -> Optional[List[str]]:
         '''
         Retrieve ingested URLs based on the provided filter.
@@ -213,8 +233,8 @@ class Ingest:
             logging.info(f"Total chunks prepared for upsert: {len(data)}")
             try:        
                 retval = self.vectordb.upsert_vectors(
-                    collection_name=self.config.get("milvus")["collection_name"],
-                    data=[item.to_dict() for item in data]
+                    collection_name=self.config.get("chromadb")["collection_name"],
+                    data=data
                 )
                 if not retval:
                     logging.error("Upsert operation returned no result.")

@@ -6,6 +6,17 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from google.adk.agents.llm_agent import Agent
 from src.app.retrieve import Retrieve
+from phoenix.otel import register
+from openinference.instrumentation.google_adk import GoogleADKInstrumentor
+
+# from src.utils.tracing import Tracer
+
+tracer_provider = register(
+    project_name="rag_agent",
+    auto_instrument=True
+)
+
+GoogleADKInstrumentor().instrument(tracer_provider=tracer_provider)
 
 def get_retrieved_docs(query: str):
     '''
